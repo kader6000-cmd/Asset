@@ -32,16 +32,29 @@ jobs:
       - name: Restore signing keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $GITHUB_WORKSPACE/release.keystore
 
+      - name: Verify keystore
+        run: |
+          ls -l "$GITHUB_WORKSPACE/release.keystore"
+          keytool -list -keystore "$GITHUB_WORKSPACE/release.keystore" -storepass "$KEYSTORE_PASSWORD"
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
       - name: Build Release APK
         run: |
           PROJECT_DIR=$(dirname $(find . -name "settings.gradle.kts" | head -n 1))
           cd "$PROJECT_DIR"
           gradle assembleRelease
+
+      - name: Sign APK
+        run: |
+          PROJECT_DIR=$(dirname $(find . -name "settings.gradle.kts" | head -n 1))
+          APKSIGNER=$(find "$ANDROID_HOME" "$ANDROID_SDK_ROOT" /usr/local/lib/android/sdk -maxdepth 4 -name apksigner -type f 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then echo "apksigner not found"; exit 1; fi
+          echo "Using $APKSIGNER"
+          "$APKSIGNER" sign --ks "$GITHUB_WORKSPACE/release.keystore" --ks-pass env:KEYSTORE_PASSWORD --ks-key-alias nova --key-pass env:KEYSTORE_PASSWORD --out "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" "$PROJECT_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+          "$APKSIGNER" verify --verbose --print-certs "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
         env:
-          KEYSTORE_FILE: ${{ github.workspace }}/release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
